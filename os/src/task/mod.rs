@@ -23,6 +23,8 @@ pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
 
+use super::timer::get_time_ms;
+
 /// The task manager, where all the tasks are managed.
 ///
 /// Functions implemented on `TaskManager` deals with all task state transitions
@@ -54,6 +56,9 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+	    
+	    start_time: 0,
+	    run_before_p: false
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -81,6 +86,12 @@ impl TaskManager {
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
+	
+	if task0.run_before_p == false {
+	    task0.run_before_p = true;
+	    task0.start_time = get_time_ms();
+	}
+	
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -125,6 +136,12 @@ impl TaskManager {
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+	    
+	    if inner.tasks[next].run_before_p == false {
+		inner.tasks[next].run_before_p = true;
+		inner.tasks[next].start_time = get_time_ms();
+	    }
+	    
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -134,6 +151,18 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    /// so we can get current running task's id while traped 
+    pub fn get_current_task(&self) -> usize {
+	let inner =  self.inner.exclusive_access();
+	inner.current_task
+    }
+
+    ///so we can get a task's start_time
+    pub fn get_task_start_time(&self, task_id: usize) -> usize {
+	let inner =  self.inner.exclusive_access();
+	inner.tasks[task_id].start_time
     }
 }
 
